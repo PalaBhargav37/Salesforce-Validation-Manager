@@ -7,6 +7,8 @@ const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
+app.set('trust proxy', 1); // Required for Render proxy
+
 const PORT = process.env.PORT || 5000;
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
@@ -22,11 +24,12 @@ app.use(cors({
 
 app.use(session({
   secret: process.env.SESSION_SECRET || 'sf-validation-manager-secret-key',
-  resave: false,
-  saveUninitialized: false,
+  resave: true,
+  saveUninitialized: true,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000
   }
 }));
@@ -46,7 +49,9 @@ app.get('/auth/login', (req, res) => {
     .update(codeVerifier)
     .digest('base64url');
 
-  req.session.codeVerifier = codeVerifier;
+  // Store codeVerifier in state param instead of session
+  // This avoids session persistence issues on Render
+  const state = Buffer.from(JSON.stringify({ codeVerifier })).toString('base64url');
 
   const params = new URLSearchParams({
     response_type:         'code',
@@ -55,7 +60,7 @@ app.get('/auth/login', (req, res) => {
     scope:                 'api refresh_token offline_access',
     code_challenge:        codeChallenge,
     code_challenge_method: 'S256',
-    state:                 crypto.randomBytes(16).toString('hex')
+    state:                 state
   });
 
   res.redirect(`${SF_LOGIN_URL}/services/oauth2/authorize?${params.toString()}`);
@@ -63,7 +68,7 @@ app.get('/auth/login', (req, res) => {
 
 // ─── Salesforce OAuth Callback ────────────────────────────────────────────────
 app.get('/auth/callback', async (req, res) => {
-  const { code, error } = req.query;
+  const { code, error, state } = req.query;
   const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000';
 
   if (error) {
@@ -72,10 +77,18 @@ app.get('/auth/callback', async (req, res) => {
   }
 
   try {
-    const codeVerifier = req.session.codeVerifier;
+    // Decode codeVerifier from state param
+    let codeVerifier;
+    try {
+      const decoded = JSON.parse(Buffer.from(state, 'base64url').toString());
+      codeVerifier = decoded.codeVerifier;
+    } catch (e) {
+      console.error('Failed to decode state param:', e.message);
+      return res.redirect(`${FRONTEND}?error=invalid_state`);
+    }
 
     if (!codeVerifier) {
-      console.error('No code verifier found in session');
+      console.error('No code verifier found in state');
       return res.redirect(`${FRONTEND}?error=missing_verifier`);
     }
 
@@ -113,16 +126,13 @@ app.get('/auth/callback', async (req, res) => {
       }
     };
 
-    delete req.session.codeVerifier;
-
     console.log('Salesforce OAuth success for:', userRes.data.username);
-
     return res.redirect(`${FRONTEND}?login=success`);
 
   } catch (err) {
     console.error('Full OAuth error:', JSON.stringify(err.response?.data, null, 2));
     console.error('Message:', err.message);
-    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}?error=oauth_failed`);
+    return res.redirect(`${FRONTEND}?error=oauth_failed`);
   }
 });
 
@@ -283,7 +293,10 @@ app.patch('/api/validation-rules/:id', requireAuth, async (req, res) => {
 
     await updateRuleActiveState(instance_url, access_token, id, active);
 
-    res.json({ success: true, message: `Rule ${active ? 'activated' : 'deactivated'} successfully` });
+    res.json({
+      success: true,
+      message: `Rule ${active ? 'activated' : 'deactivated'} successfully`
+    });
 
   } catch (err) {
     res.status(500).json({ success: false, error: err.response?.data || err.message });
@@ -304,12 +317,18 @@ app.patch('/api/validation-rules', requireAuth, async (req, res) => {
 
   if (invalidRules.length > 0) {
     console.error('Invalid rules payload received:', JSON.stringify(rules, null, 2));
-    return res.status(400).json({ success: false, error: 'Each rule must include valid id and active fields.', received: rules });
+    return res.status(400).json({
+      success: false,
+      error: 'Each rule must include valid id and active fields.',
+      received: rules
+    });
   }
 
   try {
     const results = await Promise.allSettled(
-      rules.map(({ id, active }) => updateRuleActiveState(instance_url, access_token, id, active))
+      rules.map(({ id, active }) =>
+        updateRuleActiveState(instance_url, access_token, id, active)
+      )
     );
 
     res.json({
@@ -317,7 +336,9 @@ app.patch('/api/validation-rules', requireAuth, async (req, res) => {
       results: results.map((r, i) => ({
         id:      rules[i].id,
         success: r.status === 'fulfilled',
-        error:   r.status === 'rejected' ? r.reason?.response?.data || r.reason?.message : null
+        error:   r.status === 'rejected'
+          ? r.reason?.response?.data || r.reason?.message
+          : null
       }))
     });
 
@@ -340,12 +361,18 @@ app.post('/api/deploy', requireAuth, async (req, res) => {
 
   if (invalidRules.length > 0) {
     console.error('Invalid rules payload received:', JSON.stringify(rules, null, 2));
-    return res.status(400).json({ success: false, error: 'Each rule must include valid id and active fields.', received: rules });
+    return res.status(400).json({
+      success: false,
+      error: 'Each rule must include valid id and active fields.',
+      received: rules
+    });
   }
 
   try {
     const results = await Promise.allSettled(
-      rules.map(({ id, active }) => updateRuleActiveState(instance_url, access_token, id, active))
+      rules.map(({ id, active }) =>
+        updateRuleActiveState(instance_url, access_token, id, active)
+      )
     );
 
     const failed    = results.filter(r => r.status === 'rejected');
@@ -360,7 +387,9 @@ app.post('/api/deploy', requireAuth, async (req, res) => {
         results: results.map((r, i) => ({
           id:      rules[i].id,
           success: r.status === 'fulfilled',
-          error:   r.status === 'rejected' ? r.reason?.response?.data || r.reason?.message : null
+          error:   r.status === 'rejected'
+            ? r.reason?.response?.data || r.reason?.message
+            : null
         }))
       });
     }
