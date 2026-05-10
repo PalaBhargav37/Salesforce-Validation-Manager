@@ -3,13 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
-    "axios": "^1.16.0",
-    "cors": "^2.8.6",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "express-session": "^1.19.0",
+    "axios": "^1.6.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-session": "^1.17.3",
     "lucide-react": "^0.294.0",
-    "nodemon": "^3.1.14",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.4.1",
@@ -17,12 +16,12 @@
     "react-scripts": "5.0.1"
   },
   "scripts": {
-  "start": "node server.js",
-  "dev": "react-scripts --openssl-legacy-provider start",
-  "build": "react-scripts build",
-  "test": "react-scripts test",
-  "eject": "react-scripts eject"
-},
+    "start": "node server.js",
+    "dev": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
   "eslintConfig": {
     "extends": [
       "react-app"
@@ -39,6 +38,5 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  },
- 
+  }
 }
