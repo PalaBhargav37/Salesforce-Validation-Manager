@@ -1,4 +1,6 @@
-const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+const BASE_URL = process.env.NODE_ENV === 'production' 
+  ? '' 
+  : 'http://localhost:5000';
 
 const apiCall = async (endpoint, options = {}) => {
   const res = await fetch(`${BASE_URL}${endpoint}`, {
